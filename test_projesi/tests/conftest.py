@@ -20,6 +20,11 @@ logger = logging.getLogger(__name__)
 
 APPIUM_URL = os.getenv("APPIUM_URL", "http://127.0.0.1:4723")
 
+ANA_UYGULAMA = "com.token.v1.os.launcher"
+# Kosum sirasinda one cikabilen diger paketler; soguk baslatmada kapatiliyorlar.
+YAN_PAKETLER = ("com.tokeninc.ecr", "com.tokeninc.sardis.paymentgateway",
+                "com.tokeninc.fiscalservice")
+
 
 def _takili_cihazi_bul() -> str:
     """`adb devices` ciktisindaki tek cihazin UDID'sini dondurur."""
@@ -59,6 +64,18 @@ def driver():
     )
     surucu = webdriver.Remote(APPIUM_URL,
                               options=UiAutomator2Options().load_capabilities(caps))
+
+    # SOGUK BASLATMA -- testin BILINEN bir noktadan basladigini garanti eder.
+    # noReset=True oldugundan cihaz onceki kosumdan kalma bir ekranda (yarim
+    # kalmis odeme, acik bir dialog) durabilir; oradan devam etmek testi ilk
+    # adimda dusururdu. Ilgili paketleri kapatip ana uygulamayi one aliyoruz.
+    for paket in YAN_PAKETLER:
+        try:
+            surucu.terminate_app(paket)
+        except Exception:
+            pass          # paket zaten kapaliysa sorun degil
+    surucu.activate_app(ANA_UYGULAMA)
+    logger.info("Soğuk başlatma yapıldı, ana menü açık.")
 
     yield surucu
 

@@ -21,6 +21,7 @@ chappie_test/
     ├── main.py                    testi calistirir
     ├── pytest.ini
     ├── pages/                     SADECE LOCATOR -- burada hicbir akis yok
+    │   ├── ana_menu.py            Satis sekmesi (Appium oturumu burada aciliyor)
     │   ├── satis.py               satis ekrani
     │   ├── odeme_al.py            odeme yontemi secimi
     │   └── kredi_karti.py         kart okutma, satis tipi, kasiyer no, PIN, fis
@@ -113,15 +114,23 @@ Cihaz secimi test projesine aittir: tek cihaz takiliysa `adb devices` ciktisinda
 
 ## Testin akisi
 
-1. Satis ekraninda `3500` yazilir, ilk kisma tiklanir (sepete kalem eklenir)
-2. Devam -> Odeme al -> Kredi K.
-3. "Lutfen karti okutun" ekrani beklenir; **chappie karti NFC'ye okutur**
-4. Satis Tipi ve Kasiyer No ekranlari **cikarlarsa** gecilir
-5. PIN ekrani **cikarsa** **chappie PIN'i girer**
-6. Is yeri nushasi yazdirilir, Satis ekranina donulur
-7. Kart rafa geri konur (`finally` icinde -- test dusse de calisir)
+1. Ana menuden **Satis sekmesine gecilir**
+2. `3500` yazilir, ilk kisma tiklanir (sepete kalem eklenir)
+3. Devam -> Odeme al -> Kredi K.
+4. "Lutfen karti okutun" ekrani beklenir; **chappie karti NFC'ye okutur**
+5. Satis Tipi ve Kasiyer No ekranlari **cikarlarsa** gecilir
+6. PIN ekrani **cikarsa** **chappie PIN'i girer**
+7. Is yeri nushasi yazdirilir, Satis ekranina donulur
+8. Kart rafa geri konur (`finally` icinde -- test dusse de calisir)
 
-4. ve 5. adimlarin opsiyonel olmasi kasitlidir: bazi kartlarda akis bu ekranlari atlar, cikmamalari hata degildir.
+5. ve 6. adimlarin opsiyonel olmasi kasitlidir: bazi kartlarda akis bu ekranlari atlar, cikmamalari hata degildir.
+
+### Bilinen bir noktadan baslamak
+
+Appium oturumu launcher'in **ana menu** ekraninda aciliyor; rakam tus takimi orada yok. Bu yuzden iki sey yapiliyor:
+
+- **Soguk baslatma** (`conftest.py`): oturum acilir acilmaz ecr / paymentgateway / fiscalservice paketleri kapatilip ana uygulama one aliniyor. `noReset=True` oldugundan cihaz onceki kosumdan kalma bir ekranda (yarim kalmis odeme, acik dialog) durabilir; oradan devam etmek testi ilk adimda dusururdu.
+- **Satis sekmesine gecis** (testin 1. adimi): tiklanir ve Satis ekraninin gercekten acildigi dogrulanir. Cihazda ara sira Android'in kendi navigasyon cubugu uygulamanin alt barinin uzerine binip dokunusu yutuyor -- bu durumda bir kez BACK ile temizlenip tekrar deneniyor.
 
 ## Yeni test eklemek
 
