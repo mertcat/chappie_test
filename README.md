@@ -44,9 +44,9 @@ Iki kural:
 ## Kim ne yapar
 
 - **`chappie/`** — robotu surer. Karti okutur, PIN'e basar. Bu projeyi, testleri, locator'lari **tanimaz**.
-- **`pages/`** — ekranlarin locator'lari. Baska hicbir sey.
+- **`pages/`** — ekranlarin locator'lari, base_page vb. bulunur.
 - **`tests/`** — akisin tamami. Hangi adimda robotun ne yapacagina **test karar verir**.
-- **`run_event/`** — raporlama. Zincirin disindadir, her yerden `get_api_logger()` ile cagrilir.
+- **`run_event/`** — TX'e gidecek olan logları düzenler 
 
 Arada sarmalayici, yama ya da gizli otomatik davranis yoktur:
 
@@ -58,7 +58,6 @@ assert kaybolmasini_bekle(driver, kredi_karti.KART_OKUTMA_MESAJI, timeout=30)
 
 Son satir onemli: **chappie'nin hareketi bitirmesi tek basina "cihaz karti gordu" demek degildir.** Karti gercekten okudugunu ancak ekranin kapanmasindan anlariz.
 
-Testin basinda bir avuc Appium yardimcisi var (`tikla`, `yaz`, `gorunuyor_mu`, `kaybolmasini_bekle`). Yeni test yazarken bunlari kopyalayin ya da ortak bir dosyaya alin.
 
 ## Kurulum
 
@@ -92,7 +91,7 @@ cd test_projesi && pytest
 
 ## Ayarlar
 
-Tezgahla ilgili her sey `chappie/chappie.json` dosyasinda. Oncelik:
+Robot, kart ve makinelerle ilgili her sey `chappie/chappie.json` dosyasinda. Oncelik:
 
 ```
 ortam degiskeni   >   chappie/chappie.json   >   paketteki varsayilan
