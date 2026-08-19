@@ -1,0 +1,8 @@
+# Test projesi
+Appium-Python-Client
+pytest
+
+# chappie paketinin bagimliliklari
+requests
+xmltodict
+ws4py
