@@ -1,29 +1,3 @@
-"""Test adimlarini run event olarak API'ye gonderir, kosum ozetini dosyaya yazar.
-
-Iki isi var:
-
-1. Her adimi API'ye event olarak gonderir (PUBLIC_BASE_URL tanimliysa)
-2. Kosum sonunda ozeti config/step_count.json dosyasina yazar
-
-API adresi tanimli DEGILSE kirilmaz: event gonderimi atlanir, adim sayaci ve
-ozet yazimi calismaya devam eder. Yani robotu/cihazi olan ama API'si olmayan
-bir tezgahta da sorunsuz koser.
-
-ORTAM DEGISKENLERI (hepsi opsiyonel)
-
-    PUBLIC_BASE_URL         API adresi; yoksa event gonderimi atlanir
-    RUN_ID                  kosum kimligi (varsayilan: "default_run")
-    AGENT_ID                agent kimligi (varsayilan: "local_agent")
-    RUNNER_SHARED_SECRET    API kimlik dogrulama basligi
-
-KULLANIM
-
-    from run_event.api_logger import get_api_logger
-
-    kayit = get_api_logger()
-    kayit.log_step_passed("3500 TL'lik kalem sepete eklendi.")
-    kayit.save_step_count_to_config()      # kosum sonunda
-"""
 import json
 import logging
 import os
