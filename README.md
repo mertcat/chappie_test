@@ -17,44 +17,43 @@ chappie_test/
 │   ├── paylasim.py                process'ler arasi kuyruk + sinyaller
 │   └── guvenlik.py                kavrama kontrolleri
 │
-└── test_projesi/             <- test projesi
+└── test_projesi/
     ├── main.py                    testi calistirir
     ├── pytest.ini
-    ├── pages/                     ekranlar
-    │   ├── base_page.py           tum sayfalarin atasi (Appium ile konusan tek yer)
-    │   ├── driver_setup.py        Appium oturumu
-    │   ├── satis_page.py          tutar gir, kisim sec, Devam
-    │   ├── odeme_al_page.py       Kredi K. sec
-    │   └── kredi_karti/
-    │       ├── grup_kapama_page.py      bankanin opsiyonel onayi
-    │       ├── kart_okutma_page.py      "Lutfen karti okutun"
-    │       ├── satis_tipi_page.py       Satis / Taksitli  (opsiyonel)
-    │       ├── kasiyer_no_page.py       Kasiyer No        (opsiyonel)
-    │       ├── pin_girisi_page.py       "PIN girisi bekleniyor" (opsiyonel)
-    │       └── is_yeri_nushasi_page.py  fis yazdirma
+    ├── pages/                     SADECE LOCATOR -- burada hicbir akis yok
+    │   ├── satis.py               satis ekrani
+    │   ├── odeme_al.py            odeme yontemi secimi
+    │   └── kredi_karti.py         kart okutma, satis tipi, kasiyer no, PIN, fis
     └── tests/
-        ├── chappie_entegrasyon.py  chappie'nin projeye baglandigi TEK dosya
-        ├── conftest.py             driver + chappie fixture'lari
-        └── test_3500_tl_kredi_karti.py
+        ├── chappie_entegrasyon.py chappie'nin projeye baglandigi TEK dosya
+        ├── conftest.py            driver + chappie fixture'lari
+        └── test_3500_tl_kredi_karti.py   AKISIN TAMAMI BURADA
 ```
+
+Iki kural:
+
+- **`pages/` yalnizca locator tutar.** Metot yok, akis yok, sinif bile yok -- duz modul sabitleri. Bir buton yer degistirdiginde tek satir duzeltilir.
+- **Akisin tamami testtedir.** Adimlar yukaridan asagi okunur; ne yapildigini gormek icin baska dosya acmaniz gerekmez.
 
 **`chappie/` proje disinda durur.** Boylece ayni paket birden cok test projesi tarafindan paylasilabilir; her projeye kopyalanmasi gerekmez. `tests/chappie_entegrasyon.py` bir ust dizini `sys.path`e ekleyerek paketi bulur.
 
 ## Kim ne yapar
 
-- **`chappie/`** — robotu surer. Karti okutur, PIN'e basar. Bu projeyi, testleri, sayfalari **tanimaz**.
-- **`pages/`** — ekranlari tanir: locatorlar ve o ekranda yapilabilecekler. Robottan **habersizdir**; yalnizca bekler ve gecer.
-- **`tests/`** — senaryoyu surer. Hangi adimda robotun ne yapacagina **test karar verir**.
+- **`chappie/`** — robotu surer. Karti okutur, PIN'e basar. Bu projeyi, testleri, locator'lari **tanimaz**.
+- **`pages/`** — ekranlarin locator'lari. Baska hicbir sey.
+- **`tests/`** — akisin tamami. Hangi adimda robotun ne yapacagina **test karar verir**.
 
-Arada sarmalayici, yama ya da gizli otomatik davranis yoktur. Komutu her zaman test verir:
+Arada sarmalayici, yama ya da gizli otomatik davranis yoktur:
 
 ```python
-kart_okutma = odeme_al.kredi_karti_ile_ode()          # sayfa: ekrana gel
-chappie.karti_okut()                                  # chappie: karti okut
-kart_okutma.kart_okutulmasini_bekle(timeout=30)       # sayfa: ekran kapandi mi
+assert gorunuyor_mu(driver, kredi_karti.KART_OKUTMA_MESAJI)   # ekran acildi mi
+chappie.karti_okut()                                          # chappie: karti okut
+assert kaybolmasini_bekle(driver, kredi_karti.KART_OKUTMA_MESAJI, timeout=30)
 ```
 
 Son satir onemli: **chappie'nin hareketi bitirmesi tek basina "cihaz karti gordu" demek degildir.** Karti gercekten okudugunu ancak ekranin kapanmasindan anlariz.
+
+Testin basinda bir avuc Appium yardimcisi var (`tikla`, `yaz`, `gorunuyor_mu`, `kaybolmasini_bekle`). Yeni test yazarken bunlari kopyalayin ya da ortak bir dosyaya alin.
 
 ## Kurulum
 
@@ -126,18 +125,24 @@ Cihaz secimi test projesine aittir: tek cihaz takiliysa `adb devices` ciktisinda
 
 ## Yeni test eklemek
 
-`tests/` altina bir dosya acin, `chappie` fixture'ini isteyin:
+`tests/` altina bir dosya acin, `chappie` fixture'ini isteyin ve adimlari dogrudan yazin:
 
 ```python
-def test_yeni_senaryo(driver, chappie):
-    satis = SatisPage(driver)
-    satis.tutar_gir("100")
-    satis.ilk_kismi_sec()
+from pages import kredi_karti, odeme_al, satis
 
-    kart_okutma = satis.devam_tikla().kredi_karti_ile_ode()
+def test_yeni_senaryo(driver, chappie):
+    for rakam in "100":
+        tikla(driver, satis.rakam(rakam))
+    driver.find_elements(*satis.KISIM_KARTLARI)[0].click()
+
+    tikla(driver, satis.BTN_DEVAM)
+    tikla(driver, odeme_al.BTN_KREDI_KARTI)
+
     chappie.karti_tak()          # cipe tak -- NFC yerine
-    kart_okutma.kart_okutulmasini_bekle(timeout=30)
+    kaybolmasini_bekle(driver, kredi_karti.KART_OKUTMA_MESAJI, timeout=30)
 ```
+
+Yeni bir ekran gerekiyorsa locator'ini `pages/` altina ekleyin; akisi teste yazin.
 
 Kullanilabilir komutlar `tests/chappie_entegrasyon.py` dosyasinin basinda listelenmistir.
 

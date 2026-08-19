@@ -2,22 +2,17 @@
 
 Bastan sona elle mudahale gerektirmez: karti chappie okutur, PIN'i chappie girer.
 
-AKIS
-1. Satis ekraninda 3500 yazilir ve ilk kisma tiklanir (sepete kalem eklenir).
-2. Devam -> Odeme al -> Kredi K.
-3. "Lutfen karti okutun" ekrani beklenir; CHAPPIE karti NFC'ye okutur.
-4. Satis Tipi ve Kasiyer No ekranlari (CIKARLARSA) gecilir -- ikisi de opsiyonel.
-5. PIN ekrani cikarsa CHAPPIE PIN'i girer.
-6. Is yeri nushasi yazdirilir, Satis ekranina donulur.
-7. Kart rafa geri konur.
+Akisin TAMAMI bu dosyada. pages/ altinda yalnizca locator'lar var; orada hicbir
+akis yok. Yeni bir senaryo yazmak isteyen buradaki adimlari kopyalayip degistirir.
 """
 import logging
+import time
 
-from pages.kredi_karti.is_yeri_nushasi_page import IsYeriNushasiPage
-from pages.kredi_karti.kasiyer_no_page import KasiyerNoPage
-from pages.kredi_karti.pin_girisi_page import PinGirisiPage
-from pages.kredi_karti.satis_tipi_page import SatisTipiPage
-from pages.satis_page import SatisPage
+from selenium.common.exceptions import TimeoutException
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.support.ui import WebDriverWait
+
+from pages import kredi_karti, odeme_al, satis
 
 logger = logging.getLogger(__name__)
 
@@ -27,53 +22,108 @@ KART_BEKLEME_SURESI = 30
 PIN_BEKLEME_SURESI = 30
 
 
+# --------------------------------------------------------------------------------------
+# Appium yardimcilari
+# --------------------------------------------------------------------------------------
+def tikla(driver, locator, timeout=10):
+    WebDriverWait(driver, timeout).until(EC.element_to_be_clickable(locator)).click()
+
+
+def yaz(driver, locator, metin, timeout=10):
+    WebDriverWait(driver, timeout).until(
+        EC.presence_of_element_located(locator)).send_keys(metin)
+
+
+def metni_oku(driver, locator, timeout=10):
+    return WebDriverWait(driver, timeout).until(
+        EC.presence_of_element_located(locator)).text
+
+
+def gorunuyor_mu(driver, locator, timeout=10) -> bool:
+    """Ekran/eleman verilen sure icinde belirdi mi. HATA FIRLATMAZ."""
+    try:
+        WebDriverWait(driver, timeout).until(EC.presence_of_element_located(locator))
+        return True
+    except TimeoutException:
+        return False
+
+
+def kaybolmasini_bekle(driver, locator, timeout=30, kontrol_araligi=1) -> bool:
+    """Eleman EKRANDAN KAYBOLANA kadar kisa araliklarla yoklar.
+
+    Chappie'nin hareketi tamamlamasi TEK BASINA "cihaz karti gordu" demek
+    DEGILDIR; karti gercekten okudugunu ancak ekranin kapanmasindan anlariz.
+    """
+    kalan = timeout
+    while kalan > 0:
+        if not driver.find_elements(*locator):
+            return True
+        time.sleep(kontrol_araligi)
+        kalan -= kontrol_araligi
+    return False
+
+
+# --------------------------------------------------------------------------------------
+# Test
+# --------------------------------------------------------------------------------------
 def test_3500_tl_kredi_karti_ile_odeme(driver, chappie):
     try:
-        # --- 1) 3500 TL'lik kalem ---
-        satis = SatisPage(driver)
-        satis.tutar_gir(TUTAR)
-        satis.ilk_kismi_sec()
+        # --- 1) 3500 TL'lik kalem: rakamlara sirayla bas, sonra ilk kisma tikla ---
+        for rakam in TUTAR:
+            tikla(driver, satis.rakam(rakam))
+
+        kisimlar = driver.find_elements(*satis.KISIM_KARTLARI)
+        assert kisimlar, "HATA: Ekranda seçilecek herhangi bir kısım bulunamadı!"
+        kisimlar[0].click()
         logger.info("%s TL'lik kalem sepete eklendi.", TUTAR)
 
-        # --- 2) Odeme al -> Kredi K. ---
-        odeme_al = satis.devam_tikla()
-        kart_okutma = odeme_al.kredi_karti_ile_ode()
-        assert kart_okutma.gorunuyor_mu(), (
-            "HATA: 'Lütfen kartı okutun' ekranı açılmadı!"
-        )
-        logger.info("Kart okutma ekranı açıldı (tutar: %s).", kart_okutma.tutari_oku())
+        # --- 2) Devam -> Odeme al -> Kredi K. ---
+        tikla(driver, satis.BTN_DEVAM)
+        tikla(driver, odeme_al.BTN_KREDI_KARTI)
+
+        # Bankanin "Grup Kapama Yapilacaktir" onayi CIKABILIR -- her zaman degil.
+        if gorunuyor_mu(driver, kredi_karti.GRUP_KAPAMA_BASLIK, timeout=5):
+            tikla(driver, kredi_karti.GRUP_KAPAMA_BTN_TAMAM)
+            logger.info("'Grup Kapama Yapılacaktır' onayı çıktı, 'Tamam'a basıldı.")
 
         # --- 3) CHAPPIE: karti NFC'ye okut ---
-        # Kart erken okutulursa cihaz gormez; bu yuzden ekranin acildigi YUKARIDA
+        assert gorunuyor_mu(driver, kredi_karti.KART_OKUTMA_MESAJI), (
+            "HATA: 'Lütfen kartı okutun' ekranı açılmadı!"
+        )
+        logger.info("Kart okutma ekranı açıldı (tutar: %s).",
+                    metni_oku(driver, kredi_karti.KART_OKUTMA_TUTAR))
+
+        # Kart erken okutulursa cihaz gormez; ekranin acildigi YUKARIDA
         # dogrulandiktan SONRA hareket ettiriliyor.
         chappie.karti_okut()
-        # Chappie'nin hareketi bitirmesi TEK BASINA "cihaz karti gordu" demek
-        # degildir -- ekranin gercekten kapandigini ayrica dogruluyoruz.
-        assert kart_okutma.kart_okutulmasini_bekle(timeout=KART_BEKLEME_SURESI), (
+
+        assert kaybolmasini_bekle(driver, kredi_karti.KART_OKUTMA_MESAJI,
+                                  timeout=KART_BEKLEME_SURESI), (
             "HATA: chappie kartı okuttu ama 'Lütfen kartı okutun' ekranı kapanmadı -- "
             "kart okuyucuya yeterince yaklaşmamış olabilir."
         )
         logger.info("Kart okutuldu.")
 
         # --- 4) Satis Tipi / Kasiyer No -- IKISI DE OPSIYONEL ---
-        # Bazi kartlarda akis bu ekranlari atlayip dogrudan PIN'e ya da fise gecer;
-        # cikmamalari hata degildir.
-        satis_tipi = SatisTipiPage(driver)
-        if satis_tipi.gorunuyor_mu(timeout=10):
-            satis_tipi.satis_sec()
+        # Bazi kartlarda akis bu ekranlari atlar; cikmamalari hata degildir.
+        if gorunuyor_mu(driver, kredi_karti.SATIS_TIPI_BASLIK, timeout=10):
+            tikla(driver, kredi_karti.SATIS_TIPI_BTN_SATIS)
             logger.info("Satış Tipi ekranında 'Satış' seçildi.")
 
-        kasiyer_no = KasiyerNoPage(driver)
-        if kasiyer_no.gorunuyor_mu(timeout=10):
-            kasiyer_no.kasiyer_no_gir_ve_onayla(KASIYER_NO)
+        if gorunuyor_mu(driver, kredi_karti.KASIYER_NO_ETIKET, timeout=10):
+            yaz(driver, kredi_karti.KASIYER_NO_INPUT, KASIYER_NO)
+            # Onay butonu alan BOSKEN yok, ancak deger girildikten SONRA beliriyor.
+            tikla(driver, kredi_karti.KASIYER_NO_BTN_TAMAM)
             logger.info("Kasiyer No '%s' girildi.", KASIYER_NO)
 
         # --- 5) CHAPPIE: PIN gir ---
-        # PIN ekrani da opsiyonel: temassiz/dusuk tutarli islemde kart istemeyebilir.
-        pin_girisi = PinGirisiPage(driver)
-        if pin_girisi.gorunuyor_mu(timeout=15):
+        # PIN'i APPIUM GIREMEZ: odeme klavyeleri sertifikasyon geregi enjekte
+        # dokunuslari yok sayar. Chappie tuslara fiziksel bastigi icin kisit onu
+        # baglamaz. Bu ekran da OPSIYONEL.
+        if gorunuyor_mu(driver, kredi_karti.PIN_MESAJI, timeout=15):
             chappie.pin_gir()
-            assert pin_girisi.girilmesini_bekle(timeout=PIN_BEKLEME_SURESI), (
+            assert kaybolmasini_bekle(driver, kredi_karti.PIN_MESAJI,
+                                      timeout=PIN_BEKLEME_SURESI), (
                 "HATA: chappie PIN'i girdi ama PIN ekranı kapanmadı -- tuşlara "
                 "isabet edilememiş ya da onay (tik) tuşuna basılamamış olabilir."
             )
@@ -82,12 +132,16 @@ def test_3500_tl_kredi_karti_ile_odeme(driver, chappie):
             logger.info("PIN ekranı çıkmadı (bu ödeme için gerekmemiş olabilir).")
 
         # --- 6) Fis bas ve Satis ekranina don ---
-        is_yeri_nushasi = IsYeriNushasiPage(driver)
-        assert is_yeri_nushasi.gorunuyor_mu(timeout=20), (
+        assert gorunuyor_mu(driver, kredi_karti.IS_YERI_NUSHASI_BASLIK, timeout=20), (
             "HATA: Ödeme sonrası 'İş yeri nüshası basılacak' ekranı çıkmadı -- "
             "ödeme işlenmemiş ya da banka işlemi reddetmiş olabilir."
         )
-        is_yeri_nushasi.satisa_don()
+        tikla(driver, kredi_karti.IS_YERI_NUSHASI_BTN_YAZDIR)
+
+        assert gorunuyor_mu(driver, satis.EKRAN, timeout=60), (
+            "HATA: Fiş basıldıktan sonra Satış ekranına dönülemedi -- kağıt bitmiş "
+            "ya da yazıcı kapağı açık olabilir."
+        )
         logger.info("%s TL kredi kartı ile ödendi, fiş basıldı.", TUTAR)
 
     finally:
