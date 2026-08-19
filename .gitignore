@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Kosum ciktilari
+test_projesi/config/step_count.json
+chappie_surucu.log

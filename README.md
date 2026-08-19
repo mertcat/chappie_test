@@ -20,6 +20,9 @@ chappie_test/
 └── test_projesi/
     ├── main.py                    testi calistirir
     ├── pytest.ini
+    ├── config/                    step_count.json -- kosum ozeti buraya yazilir
+    ├── run_event/
+    │   └── api_logger.py          adimlari API'ye gonderir, ozeti yazar
     ├── pages/                     SADECE LOCATOR -- burada hicbir akis yok
     │   ├── ana_menu.py            Satis sekmesi (Appium oturumu burada aciliyor)
     │   ├── satis.py               satis ekrani
@@ -43,6 +46,7 @@ Iki kural:
 - **`chappie/`** — robotu surer. Karti okutur, PIN'e basar. Bu projeyi, testleri, locator'lari **tanimaz**.
 - **`pages/`** — ekranlarin locator'lari. Baska hicbir sey.
 - **`tests/`** — akisin tamami. Hangi adimda robotun ne yapacagina **test karar verir**.
+- **`run_event/`** — raporlama. Zincirin disindadir, her yerden `get_api_logger()` ile cagrilir.
 
 Arada sarmalayici, yama ya da gizli otomatik davranis yoktur:
 
@@ -111,6 +115,45 @@ ROBOT_MAKINE=1 ROBOT_KART=2 pytest
 Tam liste: [chappie/README.md](chappie/README.md)
 
 Cihaz secimi test projesine aittir: tek cihaz takiliysa `adb devices` ciktisindan otomatik bulunur, birden fazlaysa `UDID` ortam degiskeniyle secilir.
+
+## Raporlama
+
+Test adimlari `run_event/api_logger.py` uzerinden kayda geciyor:
+
+```python
+from run_event.api_logger import get_api_logger
+
+kayit = get_api_logger()
+kayit.log_step_passed("Kart chappie tarafından okutuldu.")
+```
+
+Kosum sonunda ozet `config/step_count.json` dosyasina yaziliyor:
+
+```json
+{
+    "total_steps": 5,
+    "start_time": "2026-08-19 10:42:20",
+    "end_time": "2026-08-19 10:45:03",
+    "duration": "2m 43s",
+    "start_battery_level": 87,
+    "end_battery_level": 85,
+    "run_id": "default_run",
+    "agent_id": "local_agent"
+}
+```
+
+**API zorunlu degildir.** `PUBLIC_BASE_URL` tanimli degilse event gonderimi atlanir; adim sayaci ve ozet yazimi calismaya devam eder. API erisilemezse de test DUSMEZ, yalnizca uyari loglanir -- raporlama bir testi basarisiz kilmamali.
+
+| Ortam degiskeni | Varsayilan | Ne ise yarar |
+| --- | --- | --- |
+| `PUBLIC_BASE_URL` | — | API adresi; yoksa gonderim atlanir |
+| `RUN_ID` | `default_run` | Kosum kimligi |
+| `AGENT_ID` | `local_agent` | Agent kimligi |
+| `RUNNER_SHARED_SECRET` | — | API kimlik dogrulama basligi |
+
+Batarya seviyesi `adb` ile okunuyor; `adb` yoksa alanlar `null` kalir, logger calismaya devam eder.
+
+Ozet dosyasi **proje kokune** gore yazilir, calisma dizinine gore degil -- `pytest`i nereden calistirirsaniz calistirin ozet hep `test_projesi/config/` altina duser.
 
 ## Testin akisi
 

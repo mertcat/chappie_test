@@ -14,6 +14,7 @@ from appium.options.android import UiAutomator2Options
 # -p eklentileri conftest toplanmasindan ONCE yuklenir, o anda proje koku
 # sys.path'te olmadigindan `pytest` konsol betigiyle "No module named 'tests'"
 # hatasi verir.
+from run_event.api_logger import get_api_logger
 from tests.chappie_entegrasyon import chappie  # noqa: F401
 
 logger = logging.getLogger(__name__)
@@ -76,8 +77,12 @@ def driver():
             pass          # paket zaten kapaliysa sorun degil
     surucu.activate_app(ANA_UYGULAMA)
     logger.info("Soğuk başlatma yapıldı, ana menü açık.")
+    get_api_logger().log_test_app_launched(ANA_UYGULAMA)
 
     yield surucu
+
+    # Kosum ozeti: kac adim, ne kadar surdu, batarya ne kadar dustu.
+    get_api_logger().save_step_count_to_config()
 
     try:
         surucu.quit()

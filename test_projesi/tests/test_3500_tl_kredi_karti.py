@@ -13,6 +13,7 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 
 from pages import ana_menu, kredi_karti, odeme_al, satis
+from run_event.api_logger import get_api_logger
 
 logger = logging.getLogger(__name__)
 
@@ -87,11 +88,13 @@ def satis_sekmesine_gec(driver, timeout=10):
 # Test
 # --------------------------------------------------------------------------------------
 def test_3500_tl_kredi_karti_ile_odeme(driver, chappie):
+    kayit = get_api_logger()
     try:
         # --- 1) Ana menuden Satis ekranina gec ---
         # Appium oturumu launcher'in ANA MENU ekraninda aciliyor; rakam tus takimi
         # orada YOK. Once Satis sekmesine gecilmesi sart.
         satis_sekmesine_gec(driver)
+        kayit.log_step_passed("Satış ekranına geçildi.")
 
         # --- 2) 3500 TL'lik kalem: rakamlara sirayla bas, sonra ilk kisma tikla ---
         for rakam in TUTAR:
@@ -100,7 +103,7 @@ def test_3500_tl_kredi_karti_ile_odeme(driver, chappie):
         kisimlar = driver.find_elements(*satis.KISIM_KARTLARI)
         assert kisimlar, "HATA: Ekranda seçilecek herhangi bir kısım bulunamadı!"
         kisimlar[0].click()
-        logger.info("%s TL'lik kalem sepete eklendi.", TUTAR)
+        kayit.log_step_passed(f"{TUTAR} TL'lik kalem sepete eklendi.")
 
         # --- 3) Devam -> Odeme al -> Kredi K. ---
         tikla(driver, satis.BTN_DEVAM)
@@ -127,7 +130,7 @@ def test_3500_tl_kredi_karti_ile_odeme(driver, chappie):
             "HATA: chappie kartı okuttu ama 'Lütfen kartı okutun' ekranı kapanmadı -- "
             "kart okuyucuya yeterince yaklaşmamış olabilir."
         )
-        logger.info("Kart okutuldu.")
+        kayit.log_step_passed("Kart chappie tarafından okutuldu.")
 
         # --- 5) Satis Tipi / Kasiyer No -- IKISI DE OPSIYONEL ---
         # Bazi kartlarda akis bu ekranlari atlar; cikmamalari hata degildir.
@@ -152,7 +155,7 @@ def test_3500_tl_kredi_karti_ile_odeme(driver, chappie):
                 "HATA: chappie PIN'i girdi ama PIN ekranı kapanmadı -- tuşlara "
                 "isabet edilememiş ya da onay (tik) tuşuna basılamamış olabilir."
             )
-            logger.info("PIN girildi ve onaylandı.")
+            kayit.log_step_passed("PIN chappie tarafından girildi ve onaylandı.")
         else:
             logger.info("PIN ekranı çıkmadı (bu ödeme için gerekmemiş olabilir).")
 
@@ -167,7 +170,7 @@ def test_3500_tl_kredi_karti_ile_odeme(driver, chappie):
             "HATA: Fiş basıldıktan sonra Satış ekranına dönülemedi -- kağıt bitmiş "
             "ya da yazıcı kapağı açık olabilir."
         )
-        logger.info("%s TL kredi kartı ile ödendi, fiş basıldı.", TUTAR)
+        kayit.log_step_passed(f"{TUTAR} TL kredi kartı ile ödendi, fiş basıldı.")
 
     finally:
         # --- 8) Kart rafa donsun ---
