@@ -29,10 +29,27 @@ chappie_test/
     │   ├── odeme_al.py            odeme yontemi secimi
     │   └── kredi_karti.py         kart okutma, satis tipi, kasiyer no, PIN, fis
     └── tests/
-        ├── chappie_entegrasyon.py chappie'nin projeye baglandigi TEK dosya
-        ├── conftest.py            driver + chappie fixture'lari
+        ├── appium_driver.py       cihaz + Appium oturumu  -> baslat() / kapat()
+        ├── chappie_entegrasyon.py robot                    -> baslat() / kapat()
         └── test_3500_tl_kredi_karti.py   AKISIN TAMAMI BURADA
 ```
+
+**`conftest.py` yok, pytest fixture'i yok, `with` yok.** Oturumu ve robotu testin kendisi acar; ikisi de duz fonksiyon:
+
+```python
+def test_3500_tl_kredi_karti_ile_odeme():
+    driver = appium_driver.baslat()
+    chappie = chappie_entegrasyon.baslat()
+    try:
+        ...
+    finally:
+        chappie_entegrasyon.kapat(chappie)   # kart rafa doner, motor kapanir
+        appium_driver.kapat(driver)          # kosum ozeti yazilir, oturum kapanir
+```
+
+Kapatma `finally`'de, cunku kart kiskacta unutulursa **bir sonraki kosumun ilk hareketi raftaki karta carpar** -- test dusse de calismasi sart. (`finally` bir `with` degil; zaten dosyada olan bir yapi.)
+
+**Her test kendi oturumunu ve robotunu acar.** Kosum suresi sorun olursa `baslat()` fonksiyonlarina tembel tekil eklemek yeter (ilk cagrida ac, sonrakilerde aynisini dondur) -- test tarafinda tek satir bile degismeden tum testler ayni oturumu paylasir.
 
 Iki kural:
 
@@ -171,17 +188,21 @@ Ozet dosyasi **proje kokune** gore yazilir, calisma dizinine gore degil -- `pyte
 
 Appium oturumu launcher'in **ana menu** ekraninda aciliyor; rakam tus takimi orada yok. Bu yuzden iki sey yapiliyor:
 
-- **Soguk baslatma** (`conftest.py`): oturum acilir acilmaz ecr / paymentgateway / fiscalservice paketleri kapatilip ana uygulama one aliniyor. `noReset=True` oldugundan cihaz onceki kosumdan kalma bir ekranda (yarim kalmis odeme, acik dialog) durabilir; oradan devam etmek testi ilk adimda dusururdu.
+- **Soguk baslatma** (`appium_driver.baslat()`): oturum acilir acilmaz ecr / paymentgateway / fiscalservice paketleri kapatilip ana uygulama one aliniyor. `noReset=True` oldugundan cihaz onceki kosumdan kalma bir ekranda (yarim kalmis odeme, acik dialog) durabilir; oradan devam etmek testi ilk adimda dusururdu.
 - **Satis sekmesine gecis** (testin 1. adimi): tiklanir ve Satis ekraninin gercekten acildigi dogrulanir. Cihazda ara sira Android'in kendi navigasyon cubugu uygulamanin alt barinin uzerine binip dokunusu yutuyor -- bu durumda bir kez BACK ile temizlenip tekrar deneniyor.
 
 ## Yeni test eklemek
 
-`tests/` altina bir dosya acin, `chappie` fixture'ini isteyin ve adimlari dogrudan yazin:
+`tests/` altina bir dosya acin, oturumu ve robotu `baslat()` ile alin, adimlari dogrudan yazin:
 
 ```python
 from pages import kredi_karti, odeme_al, satis
+from tests import appium_driver, chappie_entegrasyon
 
-def test_yeni_senaryo(driver, chappie):
+def test_yeni_senaryo():
+    driver = appium_driver.baslat()
+    chappie = chappie_entegrasyon.baslat()
+
     for rakam in "100":
         tikla(driver, satis.rakam(rakam))
     driver.find_elements(*satis.KISIM_KARTLARI)[0].click()

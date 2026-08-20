@@ -14,6 +14,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 
 from pages import ana_menu, kredi_karti, odeme_al, satis
 from run_event.api_logger import get_api_logger
+from tests import appium_driver, chappie_entegrasyon
 
 logger = logging.getLogger(__name__)
 
@@ -87,7 +88,9 @@ def satis_sekmesine_gec(driver, timeout=10):
 # --------------------------------------------------------------------------------------
 # Test
 # --------------------------------------------------------------------------------------
-def test_3500_tl_kredi_karti_ile_odeme(driver, chappie):
+def test_3500_tl_kredi_karti_ile_odeme():
+    driver = appium_driver.baslat()
+    chappie = chappie_entegrasyon.baslat()
     kayit = get_api_logger()
     try:
         # --- 1) Ana menuden Satis ekranina gec ---
@@ -173,10 +176,11 @@ def test_3500_tl_kredi_karti_ile_odeme(driver, chappie):
         kayit.log_step_passed(f"{TUTAR} TL kredi kartı ile ödendi, fiş basıldı.")
 
     finally:
-        # --- 8) Kart rafa donsun ---
+        # --- 8) Kapatma: kart rafa donsun, oturum kapansin ---
         # Kart cihazda ya da kiskacta unutulursa BIR SONRAKI kosumun ilk hareketi
-        # raftaki karta carpar. Test dusse de calismasi sart.
+        # raftaki karta carpar. Test dusse de calismasi sart, o yuzden finally'de.
         try:
-            chappie.temizle()
+            chappie_entegrasyon.kapat(chappie)
         except Exception as hata:
-            logger.warning("Robot temizliği yapılamadı: %s", hata)
+            logger.warning("Robot kapatılamadı: %s", hata)
+        appium_driver.kapat(driver)

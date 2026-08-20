@@ -50,8 +50,6 @@ import logging
 import os
 import sys
 
-import pytest
-
 # chappie paketi bu projenin DISINDA, bir ust dizinde duruyor. Iki yol da
 # sys.path'e ekleniyor: proje koku (pages/, tests/ importlari icin) ve onun
 # ustu (chappie/ importu icin).
@@ -63,19 +61,17 @@ for _yol in (_PROJE_KOKU, _UST_DIZIN):
 
 logger = logging.getLogger(__name__)
 
-# chappie paketi MODUL SEVIYESINDE import EDILMEZ. Bu dosyayi conftest.py cekiyor;
-# paket burada import edilseydi ws4py/xmltodict kurulu olmayan bir makinede TUM
-# kosum conftest hatasiyla duserdi. Paket yalnizca fixture istendiginde cekilir.
+# chappie paketi MODUL SEVIYESINDE import EDILMEZ: paket burada import edilseydi
+# ws4py/xmltodict kurulu olmayan bir makinede robotu hic kullanmayan testler bile
+# toplama hatasiyla duserdi. Paket yalnizca baslat() cagrilinca cekilir.
 
-__all__ = ["chappie"]
+__all__ = ["baslat", "kapat"]
 
 
-@pytest.fixture(scope="session")
-def chappie():
-    """Robot kolu -- karti okutan, takan, PIN'i giren.
+def baslat():
+    """Robotu ayaga kaldirir ve komut almaya hazir kolu dondurur.
 
-    ``driver`` ile AYNI kapsam (session): ayaga kaldirmak motoru acip RAPID
-    programini baslattigindan saniyeler surer.
+    Motoru acip RAPID programini baslattigindan saniyeler surer.
 
     Ayaga kalkamazsa test HATAYLA duser, atlanmaz: chappie kart akisinin
     ayrilmaz parcasi, yoklugu bir tezgah arizasidir.
@@ -83,13 +79,17 @@ def chappie():
     from chappie import Chappie, ayarlar
 
     logger.info("chappie ayağa kaldırılıyor -- %s", ayarlar.ozet())
-    kol = Chappie.baslat(gunluk=logger.info)
+    return Chappie.baslat(gunluk=logger.info)
 
-    yield kol
 
-    # Kosum dusse de motor acik kalmasin, kart kiskacta unutulmasin: bir sonraki
-    # kosumun ilk hareketi raftaki karta carpar.
-    kol.durdur(temizlik=True)
+def kapat(chappie):
+    """Karti rafa koyar, motoru kapatir.
+
+    Kosum dusse de calismasi sart: kart kiskacta unutulursa BIR SONRAKI kosumun
+    ilk hareketi raftaki karta carpar. ``durdur(temizlik=True)`` karti (cihazdan
+    cikarip) rafa geri koyar.
+    """
+    chappie.durdur(temizlik=True)
 
 
 # --------------------------------------------------------------------------------------
