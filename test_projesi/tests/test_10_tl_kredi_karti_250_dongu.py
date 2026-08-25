@@ -12,7 +12,10 @@ Sabit beklemeyle her dongude ~30 sn bosa giderdi (250 dongude ~2 saat).
 import logging
 import time
 
-from selenium.common.exceptions import TimeoutException
+from appium.webdriver.common.appiumby import AppiumBy
+from selenium.common.exceptions import (
+    NoSuchElementException, StaleElementReferenceException, TimeoutException,
+)
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 
@@ -29,6 +32,55 @@ DONGU_SAYISI = 250
 KART_BEKLEME_SURESI = 30
 ODEME_BEKLEME_SURESI = 60      # kart okutuldu -> fis ekrani cikana kadar
 YOKLAMA_ARALIGI = 0.25         # ekran yoklama sikligi (Appium varsayilani 0.5)
+
+# Rakam tuslarinin element referanslari -- her dongude yeniden ARANMAZ.
+_tus_onbellegi = {}
+
+
+def hizlandir(driver):
+    """UiAutomator2'nin komut basina harcadigi bekleme paylarini kisar.
+
+    Varsayilanlar tezgah icin fazla comert: her dokunustan once uygulamanin
+    'idle' olmasi 10 sn'ye kadar beklenir (waitForIdleTimeout=10000) ve her
+    hareketten sonra 3 sn'lik bir onay payi vardir. Tus basimlarinin yavas
+    gorunmesinin ASIL sebebi bu -- tiklamanin kendisi degil.
+    """
+    driver.update_settings({
+        "waitForIdleTimeout": 100,          # varsayilan 10000
+        "actionAcknowledgmentTimeout": 100,  # varsayilan 3000
+        "keyInjectionDelay": 0,
+        "waitForSelectorTimeout": 0,
+    })
+
+
+def rakam_bas(driver, karakter):
+    """Numerik tus takimindaki bir rakama basar -- ONBELLEKLI ve ID ONCELIKLI.
+
+    Iki kazanc:
+      * ID sorgusu XPath'ten kat kat hizli. pages/satis.rakam() XPath'i 'or'lu
+        ve tum sayfa hiyerarsisini tarar; ID native sorguya duser.
+      * Tus takimi 250 dongu boyunca AYNI ekranda durdugundan element referansi
+        onbellege alinir; sonraki dongulerde arama HIC yapilmaz. Referans
+        bayatlarsa (ekran yeniden cizildi) tek seferlik yeniden aranir.
+
+    ID bulunamazsa pages/satis.rakam() fallback'ine dusulur; locator'in metin
+    yedegi (surum degisikligi) korunur.
+    """
+    el = _tus_onbellegi.get(karakter)
+    if el is not None:
+        try:
+            el.click()
+            return
+        except StaleElementReferenceException:
+            _tus_onbellegi.pop(karakter, None)
+
+    try:
+        el = driver.find_element(AppiumBy.ID, f"com.tokeninc.ecr:id/tv_{karakter}")
+    except NoSuchElementException:
+        el = WebDriverWait(driver, 10, poll_frequency=YOKLAMA_ARALIGI).until(
+            EC.element_to_be_clickable(satis.rakam(karakter)))
+    _tus_onbellegi[karakter] = el
+    el.click()
 
 
 def tikla(driver, locator, timeout=10):
@@ -78,6 +130,7 @@ def bekle_biri(driver, ekranlar: dict, timeout):
 
 def test_10_tl_kredi_karti_250_kez():
     driver = appium_driver.baslat()
+    hizlandir(driver)
     chappie = chappie_entegrasyon.baslat()
     kayit = get_api_logger()
     try:
@@ -93,7 +146,7 @@ def test_10_tl_kredi_karti_250_kez():
             if not driver.find_elements(*satis.EKRAN):
                 satis_sekmesine_gec(driver)
             for rakam in TUTAR:
-                tikla(driver, satis.rakam(rakam))
+                rakam_bas(driver, rakam)
 
             kisimlar = driver.find_elements(*satis.KISIM_KARTLARI)
             assert kisimlar, f"HATA (döngü {dongu}): Seçilecek kısım bulunamadı!"
