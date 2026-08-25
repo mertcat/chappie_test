@@ -12,16 +12,15 @@ Sabit beklemeyle her dongude ~30 sn bosa giderdi (250 dongude ~2 saat).
 import logging
 import time
 
-from appium.webdriver.common.appiumby import AppiumBy
 from selenium.common.exceptions import (
-    NoSuchElementException, StaleElementReferenceException, TimeoutException,
+    StaleElementReferenceException, TimeoutException,
 )
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 
-from pages import kredi_karti, odeme_al, satis, uyarilar
+from pages import kredi_karti, odeme_al, satis
 from run_event.api_logger import get_api_logger
-from tests import appium_driver, chappie_entegrasyon
+from tests import appium_driver, chappie_entegrasyon, cihaz_uyarisi
 from tests.test_3500_tl_kredi_karti import satis_sekmesine_gec
 
 logger = logging.getLogger(__name__)
@@ -31,11 +30,13 @@ KASIYER_NO = "1"
 DONGU_SAYISI = 250
 KART_BEKLEME_SURESI = 30
 ODEME_BEKLEME_SURESI = 60      # kart okutuldu -> fis ekrani cikana kadar
-ISINMA_UYARI_LIMITI = 5        # ayni adimda ust uste bu kadar kapatilirsa vazgec
 YOKLAMA_ARALIGI = 0.25         # ekran yoklama sikligi (Appium varsayilani 0.5)
+UYARI_KONTROL_ARALIGI = 3.0    # isinma uyarisi en fazla bu sikligda yoklanir (adb)
 
-# Rakam tuslarinin element referanslari -- her dongude yeniden ARANMAZ.
-_tus_onbellegi = {}
+_son_uyari_kontrolu = 0.0
+
+# Rakam tuslarinin merkez koordinatlari -- her dongude yeniden ARANMAZ.
+_tus_koordinatlari = {}
 
 
 def hizlandir(driver):
@@ -55,65 +56,90 @@ def hizlandir(driver):
 
 
 def rakam_bas(driver, karakter):
-    """Numerik tus takimindaki bir rakama basar -- ONBELLEKLI ve ID ONCELIKLI.
+    """Numerik tus takimindaki bir rakama basar -- KOORDINAT ONBELLEKLI.
 
-    Iki kazanc:
-      * ID sorgusu XPath'ten kat kat hizli. pages/satis.rakam() XPath'i 'or'lu
-        ve tum sayfa hiyerarsisini tarar; ID native sorguya duser.
-      * Tus takimi 250 dongu boyunca AYNI ekranda durdugundan element referansi
-        onbellege alinir; sonraki dongulerde arama HIC yapilmaz. Referans
-        bayatlarsa (ekran yeniden cizildi) tek seferlik yeniden aranir.
+    Tus takiminda RESOURCE-ID YOK (cihazdaki hiyerarsiden dogrulandi: rakam
+    node'lari text="1" ... text="9", resource-id bos, clickable=false; dokunusu
+    tiklanabilir ebeveyn aliyor). Geriye pahali bir XPath kaliyor: pages/satis.
+    rakam() 'or'lu bir ifade ve her cagrida tum sayfa hiyerarsisi taraniyor --
+    tus basimlarinin yavas gorunmesinin sebeplerinden biri buydu.
 
-    ID bulunamazsa pages/satis.rakam() fallback'ine dusulur; locator'in metin
-    yedegi (surum degisikligi) korunur.
+    Bu yuzden tus YALNIZCA ILK KEZ aranir; merkez koordinati saklanir ve sonraki
+    250 dongu boyunca dogrudan oraya dokunulur. Tus takimi sabit oldugu icin
+    koordinat gecerliligini korur; dokunus yutulursa tutar dogrulamasi (bkz.
+    testteki 'deneme' dongusu) basimi tekrarlar.
     """
-    el = _tus_onbellegi.get(karakter)
-    if el is not None:
-        try:
-            el.click()
-            return
-        except StaleElementReferenceException:
-            _tus_onbellegi.pop(karakter, None)
-
-    try:
-        el = driver.find_element(AppiumBy.ID, f"com.tokeninc.ecr:id/tv_{karakter}")
-    except NoSuchElementException:
+    xy = _tus_koordinatlari.get(karakter)
+    if xy is None:
+        uyari_varsa_kapat(zorla=True)      # tus ariyorsak overlay araya girmis olabilir
         el = WebDriverWait(driver, 10, poll_frequency=YOKLAMA_ARALIGI).until(
-            EC.element_to_be_clickable(satis.rakam(karakter)))
-    _tus_onbellegi[karakter] = el
-    el.click()
+            EC.presence_of_element_located(satis.rakam(karakter)))
+        kutu = el.rect
+        xy = (kutu["x"] + kutu["width"] // 2, kutu["y"] + kutu["height"] // 2)
+        _tus_koordinatlari[karakter] = xy
+        logger.info("'%s' tuşu bulundu, koordinatı önbelleğe alındı: %s", karakter, xy)
+
+    driver.execute_script("mobile: clickGesture", {"x": xy[0], "y": xy[1]})
 
 
-def uyari_varsa_kapat(driver) -> bool:
-    """'Cihaz isindi' uyarisi ekrandaysa Tamam'a basar. BEKLEMEZ, tek yoklama.
+def tutar_metni(driver) -> str:
+    """Satis ekranindaki tutar alaninin metni; alan yoksa bos dizge."""
+    alan = driver.find_elements(*satis.TUTAR)
+    return alan[0].text if alan else ""
 
-    Uzun kosumda cihaz isinir ve uyari akisin ORTASINA duser; kapatilmazsa
-    altindaki ekran tiklanamaz ve test alakasiz bir adimda dusler.
+
+def uyari_varsa_kapat(driver=None, zorla=False) -> bool:
+    """'Cihazınız ısındı' uyarisi ekrandaysa Tamam'a basar.
+
+    Uyari APPIUM'A GORUNMEZ (launcher'in SYSTEM_ALERT_WINDOW overlay'i), bu yuzden
+    kontrol adb ile yapiliyor -- ayrintisi tests/cihaz_uyarisi.py icinde.
+
+    adb cagrisi Appium sorgusundan pahali oldugundan bekleme donguleri icinde
+    KISILIYOR: en fazla UYARI_KONTROL_ARALIGI'da bir yoklanir. Karar noktalarinda
+    (dongu basi, tus basimi sonrasi) zorla=True ile hemen yoklanir.
+
+    ``driver`` kullanilmiyor; cagri yerlerini degistirmemek icin duruyor.
     """
-    if not driver.find_elements(*uyarilar.CIHAZ_ISINDI):
+    global _son_uyari_kontrolu
+    simdi = time.time()
+    if not zorla and simdi - _son_uyari_kontrolu < UYARI_KONTROL_ARALIGI:
         return False
-    logger.warning("'Cihaz ısındı' uyarısı çıktı, Tamam'a basılıyor.")
-    tikla(driver, uyarilar.CIHAZ_ISINDI_BTN_TAMAM)
-    return True
+    _son_uyari_kontrolu = simdi
+    return cihaz_uyarisi.kapat_varsa()
 
 
 def tikla(driver, locator, timeout=10):
-    WebDriverWait(driver, timeout, poll_frequency=YOKLAMA_ARALIGI).until(
-        EC.element_to_be_clickable(locator)).click()
+    """Tiklar; uyari araya girdiyse kapatip BIR KEZ daha dener."""
+    try:
+        WebDriverWait(driver, timeout, poll_frequency=YOKLAMA_ARALIGI).until(
+            EC.element_to_be_clickable(locator)).click()
+    except (TimeoutException, StaleElementReferenceException):
+        if not uyari_varsa_kapat(driver):
+            raise
+        WebDriverWait(driver, timeout, poll_frequency=YOKLAMA_ARALIGI).until(
+            EC.element_to_be_clickable(locator)).click()
 
 
 def yaz(driver, locator, metin, timeout=10):
-    WebDriverWait(driver, timeout, poll_frequency=YOKLAMA_ARALIGI).until(
-        EC.presence_of_element_located(locator)).send_keys(metin)
+    try:
+        WebDriverWait(driver, timeout, poll_frequency=YOKLAMA_ARALIGI).until(
+            EC.presence_of_element_located(locator)).send_keys(metin)
+    except (TimeoutException, StaleElementReferenceException):
+        if not uyari_varsa_kapat(driver):
+            raise
+        WebDriverWait(driver, timeout, poll_frequency=YOKLAMA_ARALIGI).until(
+            EC.presence_of_element_located(locator)).send_keys(metin)
 
 
 def gorunuyor_mu(driver, locator, timeout=10) -> bool:
-    try:
-        WebDriverWait(driver, timeout, poll_frequency=YOKLAMA_ARALIGI).until(
-            EC.presence_of_element_located(locator))
-        return True
-    except TimeoutException:
-        return False
+    bitis = time.time() + timeout
+    while time.time() < bitis:
+        if driver.find_elements(*locator):
+            return True
+        if uyari_varsa_kapat(driver):
+            bitis = time.time() + timeout      # uyariya harcanan sure sayilmaz
+        time.sleep(YOKLAMA_ARALIGI)
+    return False
 
 
 def kaybolmasini_bekle(driver, locator, timeout=30) -> bool:
@@ -123,6 +149,8 @@ def kaybolmasini_bekle(driver, locator, timeout=30) -> bool:
     while time.time() < bitis:
         if not driver.find_elements(*locator):
             return True
+        if uyari_varsa_kapat(driver):
+            bitis = time.time() + timeout
         time.sleep(YOKLAMA_ARALIGI)
     return False
 
@@ -138,6 +166,8 @@ def bekle_biri(driver, ekranlar: dict, timeout):
         for ad, locator in ekranlar.items():
             if driver.find_elements(*locator):
                 return ad
+        if uyari_varsa_kapat(driver):
+            bitis = time.time() + timeout      # uyariya harcanan sure sayilmaz
         time.sleep(YOKLAMA_ARALIGI)
     return None
 
@@ -155,16 +185,28 @@ def test_10_tl_kredi_karti_250_kez():
             logger.info("=" * 70)
 
             # Cihaz isinma uyarisi onceki dongunun sonunda cikmis olabilir.
-            uyari_varsa_kapat(driver)
+            uyari_varsa_kapat(zorla=True)
 
             # --- Satis ekrani: tutari gir, kalemi sepete at ---
             # Fis basildiktan sonra zaten Satis ekranindayiz; sekmeye yeniden
             # basmak gereksiz bir tur (ilk dongude ana menuden gelinir).
             if not driver.find_elements(*satis.EKRAN):
                 satis_sekmesine_gec(driver)
-            for rakam in TUTAR:
-                rakam_bas(driver, rakam)
+            # Uyari tam tus basarken cikarsa dokunuslar OVERLAY'e gider ve tutar
+            # ekranda degismez. Tutar alanini once/sonra karsilastirip yutulan
+            # basimlari tekrarliyoruz -- bicimi bilmeye gerek yok.
+            for deneme in (1, 2):
+                onceki_tutar = tutar_metni(driver)
+                for rakam in TUTAR:
+                    rakam_bas(driver, rakam)
+                if not uyari_varsa_kapat(zorla=True):
+                    break
+                if tutar_metni(driver) != onceki_tutar:
+                    break               # basimlar gecmis, uyari sonradan cikmis
+                logger.warning("Tuş basımları uyarı tarafından yutuldu, tutar "
+                               "yeniden giriliyor.")
 
+            uyari_varsa_kapat(zorla=True)   # kisim dokunusu overlay'e gitmesin
             kisimlar = driver.find_elements(*satis.KISIM_KARTLARI)
             assert kisimlar, f"HATA (döngü {dongu}): Seçilecek kısım bulunamadı!"
             kisimlar[0].click()
@@ -177,22 +219,11 @@ def test_10_tl_kredi_karti_250_kez():
             # Grup kapama onayi CIKABILIR; kart ekraniyla yaristiriliyor ki
             # cikmadigi dongulerde bosa beklenmesin.
             oncesi = {
-                "isindi": uyarilar.CIHAZ_ISINDI,
                 "grup_kapama": kredi_karti.GRUP_KAPAMA_BASLIK,
                 "kart": kredi_karti.KART_OKUTMA_MESAJI,
             }
-            isinma_sayaci = 0
             while True:
                 ekran = bekle_biri(driver, oncesi, timeout=15)
-                if ekran == "isindi":
-                    isinma_sayaci += 1
-                    assert isinma_sayaci <= ISINMA_UYARI_LIMITI, (
-                        f"HATA (döngü {dongu}): 'Cihaz ısındı' uyarısı "
-                        f"{ISINMA_UYARI_LIMITI} kez kapatıldı ama geri geliyor -- "
-                        "cihazın soğuması gerekiyor."
-                    )
-                    uyari_varsa_kapat(driver)
-                    continue                    # uyari tekrar cikabilir, listede kalir
                 if ekran == "grup_kapama":
                     tikla(driver, kredi_karti.GRUP_KAPAMA_BTN_TAMAM)
                     oncesi.pop("grup_kapama")
@@ -212,14 +243,12 @@ def test_10_tl_kredi_karti_250_kez():
             # Satis tipi / kasiyer no / PIN OPSIYONEL, sirasi da degisebilir.
             # Fis ekrani cikinca akis biter.
             sonraki = {
-                "isindi": uyarilar.CIHAZ_ISINDI,
                 "satis_tipi": kredi_karti.SATIS_TIPI_BASLIK,
                 "kasiyer": kredi_karti.KASIYER_NO_ETIKET,
                 "pin": kredi_karti.PIN_MESAJI,
                 "fis": kredi_karti.IS_YERI_NUSHASI_BASLIK,
             }
             pin_girildi = False
-            isinma_sayaci = 0
             while True:
                 ekran = bekle_biri(driver, sonraki, timeout=ODEME_BEKLEME_SURESI)
                 assert ekran, (
@@ -227,15 +256,6 @@ def test_10_tl_kredi_karti_250_kez():
                     "'İş yeri nüshası basılacak' ekranı çıktı -- işlem takılmış "
                     "ya da banka reddetmiş olabilir."
                 )
-                if ekran == "isindi":
-                    isinma_sayaci += 1
-                    assert isinma_sayaci <= ISINMA_UYARI_LIMITI, (
-                        f"HATA (döngü {dongu}): 'Cihaz ısındı' uyarısı "
-                        f"{ISINMA_UYARI_LIMITI} kez kapatıldı ama geri geliyor -- "
-                        "cihazın soğuması gerekiyor."
-                    )
-                    uyari_varsa_kapat(driver)
-                    continue                    # listeden DUSURULMEZ: tekrar cikabilir
                 if ekran == "satis_tipi":
                     tikla(driver, kredi_karti.SATIS_TIPI_BTN_SATIS)
                 elif ekran == "kasiyer":
